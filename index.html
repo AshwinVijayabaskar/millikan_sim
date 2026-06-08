@@ -3,197 +3,307 @@
 <head>
 <meta charset="utf-8">
 <title>Millikan Oil Drop Simulator</title>
+
 <style>
 body{
-    font-family:Arial,sans-serif;
+    margin:0;
+    padding:20px;
+    background:#0f172a;
+    color:white;
+    font-family:'Segoe UI',sans-serif;
     display:flex;
-    gap:20px;
-    margin:20px;
+    gap:25px;
 }
+
 #controls{
-    width:300px;
+    width:340px;
+    background:#1e293b;
+    padding:20px;
+    border-radius:15px;
+    box-shadow:0 0 20px rgba(0,0,0,.4);
 }
+
+h2,h3{margin-top:0}
+
 label{
     display:block;
     margin-top:12px;
 }
-canvas{
-    border:1px solid #333;
+
+input[type="range"]{
+    width:100%;
+    accent-color:#38bdf8;
 }
-.value{
+
+button{
+    margin-top:10px;
+    width:100%;
+    padding:10px;
+    border:none;
+    border-radius:8px;
+    background:#38bdf8;
+    color:white;
     font-weight:bold;
+    cursor:pointer;
+}
+
+button:hover{background:#0ea5e9}
+
+.value{color:#38bdf8;font-weight:bold}
+
+.tip{
+    background:#334155;
+    padding:10px;
+    border-radius:10px;
+    margin-bottom:10px;
+    font-size:13px;
+}
+
+#state{
+    margin-top:10px;
+    font-size:16px;
+    font-weight:bold;
+}
+
+#velocityBarContainer{
+    height:14px;
+    background:#334155;
+    border-radius:10px;
+    overflow:hidden;
+    margin-top:8px;
+}
+
+#velocityBar{
+    height:100%;
+    width:0%;
+    background:cyan;
+}
+
+table{
+    width:100%;
+    font-size:12px;
+    margin-top:10px;
+    border-collapse:collapse;
+}
+
+td,th{
+    border:1px solid #334155;
+    padding:4px;
+    text-align:center;
+}
+
+canvas{
+    border-radius:15px;
+    border:1px solid #334155;
 }
 </style>
 </head>
+
 <body>
 
 <div id="controls">
-    <h2>Millikan Oil Drop Simulator</h2>
 
-    <label>
-        Electric Field (V/m)
-        <input id="field" type="range"
-               min="-500000" max="500000"
-               step="1000" value="100000">
-        <span id="fieldVal" class="value"></span>
-    </label>
+<h2>Millikan Oil Drop Simulator</h2>
 
-    <label>
-        Radius (μm)
-        <input id="radius" type="range"
-               min="0.5" max="5"
-               step="0.1" value="1.0">
-        <span id="radiusVal" class="value"></span>
-    </label>
-
-    <label>
-        Charge (e)
-        <input id="charge" type="range"
-               min="-20" max="20"
-               step="1" value="5">
-        <span id="chargeVal" class="value"></span>
-    </label>
-
-    <button id="reset">Reset Drop</button>
-
-    <hr>
-
-    <p><b>Forces</b></p>
-    <div id="info"></div>
+<div class="tip">
+Adjust the electric field until the drop stops moving.
+This simulates Millikan’s electron charge experiment.
 </div>
 
-<canvas id="sim" width="500" height="600"></canvas>
+<label>Electric Field
+<input id="field" type="range" min="-500000" max="500000" step="1000" value="100000">
+<span id="fieldVal" class="value"></span>
+</label>
+
+<label>Radius (μm)
+<input id="radius" type="range" min="0.5" max="5" step="0.1" value="1">
+<span id="radiusVal" class="value"></span>
+</label>
+
+<label>Charge (e)
+<input id="charge" type="range" min="-20" max="20" step="1" value="5">
+<span id="chargeVal" class="value"></span>
+</label>
+
+<button id="reset">Reset Drop</button>
+<button id="autoBalance">Auto Balance</button>
+<button id="checkBalance">Check Balance</button>
+<button id="record">Record Trial</button>
+
+<div id="state"></div>
+
+<h3>Velocity</h3>
+<div id="velocityBarContainer">
+<div id="velocityBar"></div>
+</div>
+
+<h3>Forces</h3>
+<div id="info"></div>
+
+<h3>Millikan Calculation</h3>
+<div id="calc"></div>
+
+<h3>Data Table</h3>
+<table id="table">
+<tr><th>E</th><th>Charge</th><th>v</th></tr>
+</table>
+
+<div id="score"></div>
+
+</div>
+
+<canvas id="sim" width="520" height="600"></canvas>
 
 <script>
 
 const canvas = document.getElementById("sim");
 const ctx = canvas.getContext("2d");
 
-const g = 9.81;
-const eta = 1.81e-5;
-const rhoOil = 900;
-const rhoAir = 1.2;
-const eCharge = 1.602e-19;
+const g=9.81;
+const eta=1.81e-5;
+const rhoOil=900;
+const rhoAir=1.2;
+const eCharge=1.602e-19;
 
-let y;
-let v;
+let y,v=0,history=[],score=0;
 
-const fieldSlider = document.getElementById("field");
-const radiusSlider = document.getElementById("radius");
-const chargeSlider = document.getElementById("charge");
+const field=document.getElementById("field");
+const radius=document.getElementById("radius");
+const charge=document.getElementById("charge");
 
-function resetDrop(){
-    y = canvas.height/2;
-    v = 0;
+const velocityBar=document.getElementById("velocityBar");
+
+function reset(){
+y=canvas.height/2;v=0;
 }
+reset();
+document.getElementById("reset").onclick=reset;
 
-resetDrop();
+function drawArrow(x1,y1,x2,y2,color){
+ctx.strokeStyle=color;
+ctx.lineWidth=2;
+ctx.beginPath();
+ctx.moveTo(x1,y1);
+ctx.lineTo(x2,y2);
+ctx.stroke();
 
-document.getElementById("reset").onclick = resetDrop;
-
-function updateLabels(){
-    fieldVal.textContent =
-        Number(fieldSlider.value).toLocaleString();
-
-    radiusVal.textContent =
-        radiusSlider.value;
-
-    chargeVal.textContent =
-        chargeSlider.value;
+let a=Math.atan2(y2-y1,x2-x1);
+ctx.beginPath();
+ctx.moveTo(x2,y2);
+ctx.lineTo(x2-8*Math.cos(a-0.5),y2-8*Math.sin(a-0.5));
+ctx.lineTo(x2-8*Math.cos(a+0.5),y2-8*Math.sin(a+0.5));
+ctx.fillStyle=color;
+ctx.fill();
 }
 
 function physics(dt){
 
-    const E = Number(fieldSlider.value);
-    const r = Number(radiusSlider.value) * 1e-6;
-    const n = Number(chargeSlider.value);
+const E=+field.value;
+const r=+radius.value*1e-6;
+const n=+charge.value;
 
-    const q = n * eCharge;
+const q=n*eCharge;
 
-    const volume = (4/3)*Math.PI*r*r*r;
-    const mass = volume * rhoOil;
+const vol=(4/3)*Math.PI*r**3;
+const mass=vol*rhoOil;
 
-    const Fg = volume*rhoOil*g;
-    const Fb = volume*rhoAir*g;
-    const Fe = q*E;
-    const Fd = 6*Math.PI*eta*r*v;
+const Fg=vol*rhoOil*g;
+const Fb=vol*rhoAir*g;
+const Fe=q*E;
+const Fd=6*Math.PI*eta*r*v;
 
-    const Fnet = Fe + Fb - Fg - Fd;
+const Fnet=Fe+Fb-Fg-Fd;
+const a=Fnet/mass;
 
-    const a = Fnet/mass;
+v+=a*dt;
+y-=v*dt*1500;
 
-    v += a*dt;
+if(y<30){y=30;v=0}
+if(y>570){y=570;v=0}
 
-    y -= v*dt*1500;
+const balance=Math.abs(v)<0.00005;
 
-    if(y < 30){
-        y = 30;
-        v = 0;
-    }
+state.innerHTML=balance?
+"<span style='color:lime'>BALANCED</span>":
+(v>0?"⬆ Rising":"⬇ Falling");
 
-    if(y > canvas.height-30){
-        y = canvas.height-30;
-        v = 0;
-    }
+info.innerHTML=`
+Gravity: ${Fg.toExponential(2)}<br>
+Buoyancy: ${Fb.toExponential(2)}<br>
+Electric: ${Fe.toExponential(2)}<br>
+Net: ${Fnet.toExponential(2)}<br>
+Velocity: ${v.toExponential(2)}<br>
+Charge: ${n}e
+`;
 
-    info.innerHTML =
-        `
-        Gravity: ${Fg.toExponential(3)} N<br>
-        Buoyancy: ${Fb.toExponential(3)} N<br>
-        Electric: ${Fe.toExponential(3)} N<br>
-        Velocity: ${v.toExponential(3)} m/s
-        `;
+calc.innerHTML=`q=${n}e = ${(q).toExponential(2)} C`;
+
+velocityBar.style.width=Math.min(Math.abs(v)*5000,100)+"%";
+
+history.push(v);
+if(history.length>120)history.shift();
+
+document.getElementById("record").onclick=()=>{
+table.innerHTML+=`<tr><td>${E}</td><td>${n}</td><td>${v.toExponential(2)}</td></tr>`;
+};
+
+document.getElementById("checkBalance").onclick=()=>{
+if(balance){
+score++;
+scoreDiv.innerHTML="✔ Score: "+score;
+}else scoreDiv.innerHTML="Not balanced";
+};
+
+document.getElementById("autoBalance").onclick=()=>{
+field.value=(Fg-Fb)/q;
+};
+
 }
 
 function draw(){
 
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+ctx.fillStyle="#0f172a";
+ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    ctx.fillStyle="#dddddd";
-    ctx.fillRect(50,40,400,20);
+ctx.fillStyle="#334155";
+ctx.fillRect(60,40,400,20);
+ctx.fillRect(60,540,400,20);
 
-    ctx.fillRect(50,540,400,20);
+ctx.fillStyle="gold";
+ctx.beginPath();
+ctx.arc(260,y,8,0,Math.PI*2);
+ctx.fill();
 
-    ctx.fillStyle="gold";
-    ctx.beginPath();
-    ctx.arc(canvas.width/2,y,8,0,Math.PI*2);
-    ctx.fill();
+drawArrow(260,y,260,y+40,"red");
+drawArrow(240,y,240,y-30,"lime");
+drawArrow(280,y,280,y-40,"cyan");
 
-    ctx.strokeStyle="#666";
+// velocity graph
+ctx.strokeStyle="cyan";
+ctx.beginPath();
+history.forEach((v,i)=>{
+let x=60+i*3;
+let y2=300-v*10;
+if(i==0)ctx.moveTo(x,y2);
+else ctx.lineTo(x,y2);
+});
+ctx.stroke();
 
-    for(let i=0;i<10;i++){
-        ctx.beginPath();
-        ctx.moveTo(120+i*30,60);
-        ctx.lineTo(120+i*30,100);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(120+i*30,500);
-        ctx.lineTo(120+i*30,540);
-        ctx.stroke();
-    }
-
-    ctx.fillStyle="black";
-    ctx.fillText("Upper Plate",200,25);
-    ctx.fillText("Lower Plate",200,585);
 }
 
-let lastTime = performance.now();
+let last=performance.now();
 
-function animate(time){
+function loop(t){
+let dt=(t-last)/1000;
+last=t;
 
-    updateLabels();
+physics(dt);
+draw();
 
-    const dt = (time-lastTime)/1000;
-    lastTime = time;
-
-    physics(dt);
-    draw();
-
-    requestAnimationFrame(animate);
+requestAnimationFrame(loop);
 }
 
-requestAnimationFrame(animate);
+requestAnimationFrame(loop);
 
 </script>
 
